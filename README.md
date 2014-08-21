@@ -1,6 +1,6 @@
 ##tenkou転校##
 
-###批量导出/删除收藏条目###
+###批量导出/删除/恢复收藏条目###
 
 Bangumi有时候连接情况不太好，会一直卡在某个地方
 
@@ -25,11 +25,12 @@ tenkou.py [-h] [-d {chii.in,bgm.tv,bangumi.tv}] [-u UID]
 -d DOMAIN, --domain DOMAIN  选择域名，默认bgm.tv, 还可选择bangumi.tv或chii.in
 -u UID, --uid UID           你的id
 --password PASSWORD         你的网站登录密码
---wipe                      删除所有条目！谨慎使用！
 -p PATH, --path PATH        本地保存目录，必须事先建立
 --auth AUTH                 auth字符串
 --useragent USERAGENT       你浏览器的User-Agent
 --authfile AUTHFILE         保存User-Agent和Auth字符串的文件（Authfile）位置
+--wipe                      删除所有条目！谨慎使用！
+-r, --restore               恢复条目
 -v, --version               程序版本
 ```
 
@@ -64,7 +65,12 @@ tenkou.py [-h] [-d {chii.in,bgm.tv,bangumi.tv}] [-u UID]
 8. tenkou.py -u 9999999 --authfile ./authfile.txt --wipe
                                          使用authfile，导出id为9999999的条目，包括观看进度
                                          完全删除条目
+
+9. tenkou.py -u 9999999 --password 12345 -p ./backup -r
+                                         使用密码，从当前工作目录下的backup目录读取文件，恢复id为9999999的条目
 ```
+
+**注：大量恢复或者删除条目过程中因为网络情况（你的连接问题或者服务器的保护机制，如果有的话）而出错的可能性会比较大。如果是恢复条目时，问题还不严重，因为本地文件还保留着。但在删除条目过程中如果发生错误，你会丢失条目记录或者删除不完全，所以虽然删除可以和导出同时进行，仍建议先导出一次再删除。**
 
 ###获取Auth和User-Agent的方法###
 

@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# version 0.0.2
 
 import urllib.request, urllib.parse, urllib.error
-import argparse, re, os
+import argparse, re, os, sys, copy
 from bs4 import BeautifulSoup
 
 
@@ -23,6 +24,18 @@ def puts(str):
         ptStrLiterally(str)
     else:
         pass
+
+
+def searchSubStr(str, pattern_start, pattern_end, quiet=False):
+    try:
+        start = re.search(pattern_start, str).end()
+        end = re.search(pattern_end, str[start:]).start()
+    except AttributeError as e:
+        if not quiet:
+            print('AttributeError: Can\'t find substring')
+        return ''
+    substr = str[start:end+start]
+    return substr
 
 
 def generateOpener(auth, ua):
@@ -87,7 +100,7 @@ def removeItem(domain, subid, auth, ua, gh):
         return True
 
 
-def process(domain, auth, ua, uid, path, wipe):
+def export(domain, auth, ua, uid, path, wipe):
     cats = ['anime', 'game', 'music', 'book', 'real']
     types = ['do', 'collect', 'wish', 'on_hold', 'dropped']
     # types = ['do', 'wish', 'on_hold', 'dropped']
@@ -96,7 +109,7 @@ def process(domain, auth, ua, uid, path, wipe):
               'game' : '游戏',
               'music' : '音乐',
               'book' : '书籍',
-              'real' : '三次元'}
+              'real' : '电视剧'}
     types_c = {'do' : '在看',
                'collect' : '看过',
                'wish' : '想看',
@@ -106,7 +119,8 @@ def process(domain, auth, ua, uid, path, wipe):
     for cat, type in cats_types:
         # if cat == 'anime' and type == 'collect':
         #     continue
-        print(types_c[type], '的', cats_c[cat], '\n')
+        # print(types_c[type], '的', cats_c[cat], '\n')
+        puts(types_c[type] + '的' + cats_c[cat] + '\n')
         pg = 1
         idx = 1
         items = ''
@@ -204,11 +218,139 @@ def getAuth(domain, auth, ua, authfile, uid, password):
     # print(res.getheaders())
     # print(res.getheader('Set-Cookie'))
     cookie = res.getheader('Set-Cookie')
-    start = re.search("chii_auth=", cookie).end()
-    end = re.search("(;|$)", cookie[start:]).start()
-    # print(cookie[start:end+start])
-    auth = cookie[start:end+start]
+    # -- use searchSubStr() --
+    # start = re.search('chii_auth=', cookie).end()
+    # end = re.search('(;|$)', cookie[start:]).start()
+    # # print(cookie[start:end+start])
+    # auth = cookie[start:end+start]
+    # -- use searchSubStr() --
+    auth = searchSubStr(cookie, 'chii_auth=', '(;|$)')
     return uid, auth, user_agent
+
+
+def post(url, data, auth, ua):
+    opener = generateOpener(auth, ua)
+    post_data = urllib.parse.urlencode(data).encode('utf-8')
+    urllib.request.install_opener(opener)
+    res = urllib.request.urlopen(url, post_data)
+    return res
+
+
+def getGH(domain, auth, ua):
+    opener = generateOpener(auth, ua)
+    html = opener.open(domain).read().decode('utf-8')
+    pattern = '<a href="http://(bangumi.tv|bgm.tv|chii.in)/logout/'
+    # -- use searchSubStr() --
+    # start = re.search(pattern, html).end()
+    # end = re.search('"', html[start:]).start()
+    # return html[start:end+start]
+    # -- use searchSubStr() --
+    return searchSubStr(html, pattern, '"')
+
+
+def addItem(domain, subid, type, rating, tags,
+            comment, watchedeps, gh, auth, ua):
+    # print(domain, subid, type, rating, tags,
+    #       comment, watchedeps, gh, auth, ua)
+    # on == on_hold
+    types_table = {
+        'wish'    : 1,
+        'collect' : 2,
+        'do'      : 3,
+        'on'      : 4,
+        'dropped' : 5
+    }
+    item_action = ''.join( [domain, '/subject/', subid,
+                            '/interest/update?gh=', gh] )
+    item_data = {
+        'referer'  : 'subject',
+        'interest' : types_table[type],
+        'rating'   : rating,
+        'tags'     : tags,
+        'comment'  : comment,
+        'update'   : '保存'
+    }
+    item_res = post(item_action, item_data, auth, ua)
+    if watchedeps:
+        eps_action = ''.join( [domain, '/subject/set/watched/', subid] )
+        eps_data = {
+            'referer'    : 'subject',
+            'subject'    : '更新',
+            'watchedeps' : watchedeps
+        }
+        eps_res = post(eps_action, eps_data, auth, ua)
+    return item_res
+
+
+def restore(domain, auth, ua, path):
+    basic_dict = {
+        'title'      : '',
+        'subid'      : '',
+        'type'       : '',
+        'rating'     : '',
+        'tags'       : '',
+        'comment'    : '',
+        'watchedeps' : '',
+    }
+    m_dict = {
+        '简评' : 'comment',
+        '进度' : 'watchedeps',
+    }
+    part_a = '_(anime|game|music|book|real)'
+    part_b = '_(do|collect|wish|on_hold|dropped)'
+    files_name_pattern = 'bangumi' + part_a + part_b + '.txt$'
+    files = filter(lambda x : re.match(files_name_pattern, x), os.listdir(path))
+    gh = getGH(domain, auth, ua)
+    for file in files:
+        print(file, '\n')
+        items_dict = {}
+        counter = 0
+        with open(path + file, 'r', encoding='utf-8') as f:
+            items = f.readlines()
+        for line in items:
+            # print(line)
+            line = line.strip()
+            if re.match('\d+\. ', line):
+                counter += 1
+                items_dict[counter] = copy.deepcopy(basic_dict)
+                items_dict[counter]['title'] = line
+                type = file.split('.')[0].split('_')[2]
+                items_dict[counter]['type'] = type
+            elif re.match('\d{4}-\d{1,2}-\d{1,2}', line):
+                tags = searchSubStr(line, '标签: ', '$', True)
+                items_dict[counter]['tags'] = tags
+            elif line.startswith('地址'):
+                subid = searchSubStr(line, '\.(tv|in)/subject/', '$')
+                # print('subid', subid)
+                # print('counter', counter)
+                items_dict[counter]['subid'] = subid
+            elif line.startswith('评分'):
+                items_dict[counter]['rating'] = line[3:-1]
+            else:
+                m = m_dict.get(line[:2])
+                items_dict[counter][m] = line[3:]
+        n = len( items_dict.keys() )
+        for i in range(n, 0, -1):
+            # print(items_dict[i]['subid'],
+            #       items_dict[i]['type'],
+            #       items_dict[i]['rating'],
+            #       items_dict[i]['tags'],
+            #       items_dict[i]['comment'],
+            #       items_dict[i]['watchedeps'],
+            #       gh,
+            #       auth,
+            #       ua)
+            puts(items_dict[i]['title'] + '\n')
+            addItem(domain,
+                    items_dict[i]['subid'],
+                    items_dict[i]['type'],
+                    items_dict[i]['rating'],
+                    items_dict[i]['tags'],
+                    items_dict[i]['comment'],
+                    items_dict[i]['watchedeps'],
+                    gh,
+                    auth,
+                    ua)
 
 
 
@@ -224,9 +366,6 @@ def main():
                         help="your id")
     parser.add_argument("--password",
                         help="give me your password")
-    parser.add_argument("--wipe",
-                        action="store_true",
-                        help="tenkou")
     parser.add_argument("-p", "--path",
                         default="./",
                         help="change the directory "\
@@ -238,9 +377,15 @@ def main():
     parser.add_argument("--authfile",
                         help="specify the location of "\
                              "your auth file")
+    parser.add_argument("-r", "--restore",
+                        action="store_true",
+                        help="restore your data")
+    parser.add_argument("--wipe",
+                        action="store_true",
+                        help="tenkou")
     parser.add_argument("-v", "--version",
                         action='version',
-                        version='v0.0.1')
+                        version='v0.0.2')
     args = parser.parse_args()
     # parse argv end
     if not os.path.isdir(args.path):
@@ -259,10 +404,10 @@ def main():
                             args.authfile,
                             args.uid,
                             args.password)
-    # if not auth:
-    #     return
-    process(domain, auth, ua, uid, path, wipe)
+    if not args.restore:
+        export(domain, auth, ua, uid, path, wipe)
+    else:
+        restore(domain, auth, ua, path)
     print("Complete")
 
 main()
-
